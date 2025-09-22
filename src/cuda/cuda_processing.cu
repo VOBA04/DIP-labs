@@ -55,12 +55,12 @@ __global__ void BgrToGrayKernel(const uint8_t *b, const uint8_t *g,
 }
 
 __device__ inline void HsiToRgb(const float HUE_DEG_IN, const float SAT_IN,
-                                const float INT_IN, float &rOut, float &gOut,
-                                float &bOut) {
+                                const float INT_IN, float &r_out, float &g_out,
+                                float &b_out) {
   float s = fminf(fmaxf(SAT_IN, 0.0F), 1.0F);
   float i = fminf(fmaxf(INT_IN, 0.0F), 1.0F);
   if (s <= 1e-6F) {
-    rOut = gOut = bOut = i;
+    r_out = g_out = b_out = i;
     return;
   }
   float h = fmodf(HUE_DEG_IN, 360.0F);
@@ -74,9 +74,9 @@ __device__ inline void HsiToRgb(const float HUE_DEG_IN, const float SAT_IN,
     float r = i * (1.0F + (s * cosf(h_rad) / denom));
     float b = i * (1.0F - s);
     float g = 3.0F * i - (r + b);
-    rOut = fminf(fmaxf(r, 0.0F), 1.0F);
-    gOut = fminf(fmaxf(g, 0.0F), 1.0F);
-    bOut = fminf(fmaxf(b, 0.0F), 1.0F);
+    r_out = fminf(fmaxf(r, 0.0F), 1.0F);
+    g_out = fminf(fmaxf(g, 0.0F), 1.0F);
+    b_out = fminf(fmaxf(b, 0.0F), 1.0F);
     return;
   }
   if (h < 240.0F) {
@@ -86,9 +86,9 @@ __device__ inline void HsiToRgb(const float HUE_DEG_IN, const float SAT_IN,
     float r = i * (1.0F - s);
     float g = i * (1.0F + (s * cosf(h2) / denom));
     float b = 3.0F * i - (r + g);
-    rOut = fminf(fmaxf(r, 0.0F), 1.0F);
-    gOut = fminf(fmaxf(g, 0.0F), 1.0F);
-    bOut = fminf(fmaxf(b, 0.0F), 1.0F);
+    r_out = fminf(fmaxf(r, 0.0F), 1.0F);
+    g_out = fminf(fmaxf(g, 0.0F), 1.0F);
+    b_out = fminf(fmaxf(b, 0.0F), 1.0F);
     return;
   }
   {
@@ -98,9 +98,9 @@ __device__ inline void HsiToRgb(const float HUE_DEG_IN, const float SAT_IN,
     float g = i * (1.0F - s);
     float b = i * (1.0F + (s * cosf(h3) / denom));
     float r = 3.0F * i - (g + b);
-    rOut = fminf(fmaxf(r, 0.0F), 1.0F);
-    gOut = fminf(fmaxf(g, 0.0F), 1.0F);
-    bOut = fminf(fmaxf(b, 0.0F), 1.0F);
+    r_out = fminf(fmaxf(r, 0.0F), 1.0F);
+    g_out = fminf(fmaxf(g, 0.0F), 1.0F);
+    b_out = fminf(fmaxf(b, 0.0F), 1.0F);
   }
 }
 
@@ -221,7 +221,48 @@ __global__ void SobelKernel(const uint8_t *src, uint8_t *dst, int width,
     dst[y * width + x] = static_cast<uint8_t>(mag);
   }
 }
+
+__global__ void ConvertFloatToUint8Kernel(const float *src, uint8_t *dst,
+                                          int width, int height,
+                                          float inv_scale) {
+  size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+  size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x < width && y < height) {
+    size_t idx = y * width + x;
+    float val = src[idx] * inv_scale;
+    val = fminf(fmaxf(val, 0.0F), 255.0F);
+    dst[idx] = static_cast<uint8_t>(val);
+  }
+}
 } // namespace
+
+void CudaConvertFloatToUint8(const CudaImage<float> &src_float,
+                             const float SCALE_MAX,
+                             CudaImage<uint8_t> &dst_uint8) {
+  if (src_float.Empty()) {
+    throw std::runtime_error("Input float image must not be empty.");
+  }
+  if (SCALE_MAX <= 0.0F) {
+    throw std::invalid_argument("scale_max must be > 0");
+  }
+  size_t width = src_float.Width();
+  size_t height = src_float.Height();
+  dst_uint8.Create(width, height);
+  float inv_scale = 255.0F / SCALE_MAX;
+  dim3 block_size(16, 16);
+  dim3 grid_size((width + block_size.x - 1) / block_size.x,
+                 (height + block_size.y - 1) / block_size.y);
+  ConvertFloatToUint8Kernel<<<grid_size, block_size>>>(
+      src_float.DeviceData(), dst_uint8.DeviceData(), static_cast<int>(width),
+      static_cast<int>(height), inv_scale);
+  cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("ConvertToUint8Kernel failed: ") +
+                             cudaGetErrorString(err));
+  }
+  dst_uint8.Download();
+}
 
 void CudaBgrToGray(const std::vector<CudaImage<uint8_t>> &bgr_image,
                    CudaImage<uint8_t> &gray_image) {

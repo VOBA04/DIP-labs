@@ -46,19 +46,16 @@ int main(int argc, char *argv[]) {
 
   std::vector<CudaImage<float>> cuda_hsi_channels(3);
   CudaBgrToHsi(cuda_bgr_channels, cuda_hsi_channels);
-  // Convert H,S,I to 8-bit for display
-  cv::Mat hue_f = cuda_hsi_channels[0].ToCvMat(CV_32FC1);
-  cv::Mat sat_f = cuda_hsi_channels[1].ToCvMat(CV_32FC1);
-  cv::Mat int_f = cuda_hsi_channels[2].ToCvMat(CV_32FC1);
-  cv::Mat hue_8u;
-  cv::Mat sat_8u;
-  cv::Mat int_8u;
-  hue_f.convertTo(hue_8u, CV_8UC1, 255.0 / 360.0);
-  sat_f.convertTo(sat_8u, CV_8UC1, 255.0);
-  int_f.convertTo(int_8u, CV_8UC1, 255.0);
-  ShowImages({hue_8u, sat_8u, int_8u}, "HSI Channels (normalized)");
+  CudaImage<uint8_t> hue8;
+  CudaImage<uint8_t> sat8;
+  CudaImage<uint8_t> int8img;
+  CudaConvertFloatToUint8(cuda_hsi_channels[0], 360.0F, hue8);
+  CudaConvertFloatToUint8(cuda_hsi_channels[1], 1.0F, sat8);
+  CudaConvertFloatToUint8(cuda_hsi_channels[2], 1.0F, int8img);
+  ShowImages(
+      {hue8.ToCvMat(CV_8UC1), sat8.ToCvMat(CV_8UC1), int8img.ToCvMat(CV_8UC1)},
+      "HSI Channels (normalized)");
 
-  // Convert HSI back to BGR (8-bit) and display
   std::vector<CudaImage<uint8_t>> bgr_from_hsi(3);
   CudaHsiToBgr(cuda_hsi_channels, bgr_from_hsi);
   cv::Mat b_mat = bgr_from_hsi[0].ToCvMat(CV_8UC1);
