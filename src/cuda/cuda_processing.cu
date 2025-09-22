@@ -246,6 +246,11 @@ void CudaBgrToGray(const std::vector<CudaImage<uint8_t>> &bgr_image,
       bgr_image[2].DeviceData(), gray_image.DeviceData(),
       static_cast<int>(width), static_cast<int>(height));
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("BgrToGrayKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
 
 void CudaBgrToHsi(const std::vector<CudaImage<uint8_t>> &bgr_image,
@@ -280,10 +285,6 @@ void CudaBgrToHsi(const std::vector<CudaImage<uint8_t>> &bgr_image,
     throw std::runtime_error(std::string("BgrToHsiKernel failed: ") +
                              cudaGetErrorString(err));
   }
-  // Ensure host buffers contain latest data for ToCvMat
-  hsi_image[0].Download();
-  hsi_image[1].Download();
-  hsi_image[2].Download();
 }
 
 void CudaHsiToBgr(const std::vector<CudaImage<float>> &hsi_image,
@@ -318,9 +319,6 @@ void CudaHsiToBgr(const std::vector<CudaImage<float>> &hsi_image,
     throw std::runtime_error(std::string("HsiToBgrKernel failed: ") +
                              cudaGetErrorString(err));
   }
-  bgr_image[0].Download();
-  bgr_image[1].Download();
-  bgr_image[2].Download();
 }
 
 void CudaInRange(const CudaImage<uint8_t> &src, const uint8_t LOWER_BOUND,
@@ -338,6 +336,11 @@ void CudaInRange(const CudaImage<uint8_t> &src, const uint8_t LOWER_BOUND,
       src.DeviceData(), dst.DeviceData(), static_cast<int>(width),
       static_cast<int>(height), LOWER_BOUND, UPPER_BOUND);
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("InRangeKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
 
 void CudaErosion(const CudaImage<uint8_t> &src,
@@ -361,6 +364,11 @@ void CudaErosion(const CudaImage<uint8_t> &src,
       static_cast<int>(height), kernel.DeviceData(),
       static_cast<int>(kernel.Width()));
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("ErodeKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
 
 void CudaDilation(const CudaImage<uint8_t> &src,
@@ -384,6 +392,11 @@ void CudaDilation(const CudaImage<uint8_t> &src,
       static_cast<int>(height), kernel.DeviceData(),
       static_cast<int>(kernel.Width()));
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("DilateKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
 
 void CudaSobel(const CudaImage<uint8_t> &src, CudaImage<uint8_t> &dst) {
@@ -400,6 +413,11 @@ void CudaSobel(const CudaImage<uint8_t> &src, CudaImage<uint8_t> &dst) {
                                          static_cast<int>(width),
                                          static_cast<int>(height));
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("SobelKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
 
 void CudaBitwiseAnd(const CudaImage<uint8_t> &src1,
@@ -420,4 +438,9 @@ void CudaBitwiseAnd(const CudaImage<uint8_t> &src1,
       src1.DeviceData(), src2.DeviceData(), dst.DeviceData(),
       static_cast<int>(width), static_cast<int>(height));
   cudaDeviceSynchronize();
+  auto err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    throw std::runtime_error(std::string("BitwiseAndKernel failed: ") +
+                             cudaGetErrorString(err));
+  }
 }
