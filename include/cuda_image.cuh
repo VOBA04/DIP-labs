@@ -13,6 +13,11 @@ public:
 
   CudaImage(size_t width, size_t height) { this->Create(width, height); }
 
+  CudaImage(size_t width, size_t height, const std::vector<T> &data)
+      : Image<T>(width, height, data) {
+    Upload();
+  }
+
   explicit CudaImage(const Image<T> &host) {
     if (host.Empty()) {
       return;

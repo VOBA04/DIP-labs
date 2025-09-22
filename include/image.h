@@ -29,6 +29,22 @@ public:
     }
   }
 
+  Image(size_t width, size_t height, const std::vector<T> &data) {
+    if (width == 0 || height == 0) {
+      throw std::invalid_argument("Invalid image dimensions");
+    }
+    size_t expected_size =
+        static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (data.size() != expected_size) {
+      throw std::invalid_argument(
+          "Data size does not match width*height in Image(vector) constructor");
+    }
+    Create(width, height);
+    if (data_) {
+      std::copy(data.begin(), data.end(), data_);
+    }
+  }
+
   explicit Image(const cv::Mat &mat) { FromCvMat(mat); }
 
   Image(const Image &other) { CopyFrom(other); }
