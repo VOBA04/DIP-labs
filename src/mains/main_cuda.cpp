@@ -2,8 +2,6 @@
 #include "cuda_processing.h"
 #include "image.h"
 
-#include <QApplication>
-#include <QFileDialog>
 #include <cstdint>
 #include <iostream>
 #include <opencv2/core.hpp>
@@ -14,9 +12,16 @@
 #include <opencv2/imgproc.hpp>
 #include <vector>
 
+#ifdef WITH_QT
+#include <QApplication>
+#include <QFileDialog>
+#endif
+
 const int ESC_KEY = 27;
 
 int main(int argc, char *argv[]) {
+  std::string image_path;
+#ifdef WITH_QT
   QApplication app(argc, argv);
   QString file_name = QFileDialog::getOpenFileName(
       nullptr, "Выберите изображение", "../../images/",
@@ -24,8 +29,16 @@ int main(int argc, char *argv[]) {
   if (file_name.isEmpty()) {
     return 0;
   }
+  image_path = file_name.toStdString();
+#else
+  if (argc < 2) {
+    std::cerr << "Usage: " << argv[0] << " <image_path>" << std::endl;
+    return 1;
+  }
+  image_path = argv[1];
+#endif
 
-  cv::Mat img = cv::imread(file_name.toStdString());
+  cv::Mat img = cv::imread(image_path);
   if (img.empty()) {
     std::cerr << "Не удалось загрузить изображение!" << std::endl;
     return -1;
