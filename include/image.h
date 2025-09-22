@@ -29,6 +29,13 @@ public:
     }
   }
 
+  Image(size_t width, size_t height, T value) {
+    Create(width, height);
+    if (data_) {
+      std::fill_n(data_, image_size_, value);
+    }
+  }
+
   Image(size_t width, size_t height, const std::vector<T> &data) {
     if (width == 0 || height == 0) {
       throw std::invalid_argument("Invalid image dimensions");

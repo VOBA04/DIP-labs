@@ -13,8 +13,15 @@ public:
 
   CudaImage(size_t width, size_t height) { this->Create(width, height); }
 
+  CudaImage(size_t width, size_t height, T value)
+      : Image<T>(width, height, value) {
+    AllocateDevice();
+    Upload();
+  }
+
   CudaImage(size_t width, size_t height, const std::vector<T> &data)
       : Image<T>(width, height, data) {
+    AllocateDevice();
     Upload();
   }
 
