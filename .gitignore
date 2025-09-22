@@ -5,7 +5,6 @@
 !.vscode/extensions.json
 !.vscode/*.code-snippets
 
-images
 .cache
 doxygen
 dump/
