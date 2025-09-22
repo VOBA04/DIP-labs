@@ -31,6 +31,7 @@ target_include_directories(with_opencv PRIVATE
 
 target_include_directories(with_cuda PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/cuda
     ${OpenCV_INCLUDE_DIRS}
     ${Qt6Widgets_INCLUDE_DIRS}
     ${CUDAToolkit_INCLUDE_DIRS}
