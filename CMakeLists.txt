@@ -49,12 +49,12 @@ target_include_directories(with_cuda PRIVATE
     ${VTK_INCLUDE_DIRS}
 )
 
-target_link_libraries(with_opencv PRIVATE ${OpenCV_LIBS} ${VTK_LIBRARIES})
-target_link_libraries(with_cuda PRIVATE ${OpenCV_LIBS} ${VTK_LIBRARIES} CUDA::cudart)
+target_link_libraries(with_opencv PRIVATE ${OpenCV_LIBS})
+target_link_libraries(with_cuda PRIVATE ${OpenCV_LIBS} CUDA::cudart)
 
 if(ENABLE_QT)
-    target_link_libraries(with_opencv PRIVATE Qt5::Widgets)
-    target_link_libraries(with_cuda PRIVATE Qt5::Widgets)
+    target_link_libraries(with_opencv PRIVATE Qt5::Widgets ${VTK_LIBRARIES})
+    target_link_libraries(with_cuda PRIVATE Qt5::Widgets ${VTK_LIBRARIES})
     target_compile_definitions(with_opencv PRIVATE WITH_QT)
     target_compile_definitions(with_cuda PRIVATE WITH_QT)
 endif()
