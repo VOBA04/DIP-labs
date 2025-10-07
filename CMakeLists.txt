@@ -10,7 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Add option to enable/disable Qt usage
 option(ENABLE_QT "Enable Qt Widgets for file dialog" ON)
  
-set(CMAKE_CUDA_ARCHITECTURES 50 52 60 61 70 72 75 80 86 89 90)
+set(CMAKE_CUDA_ARCHITECTURES native)
 
 find_package(OpenCV REQUIRED)
 
