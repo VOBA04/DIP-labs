@@ -9,6 +9,12 @@
 void ShowImages(const std::vector<cv::Mat> &images,
                 const std::string &window_name, size_t ROWS = 1);
 
+#ifdef WITH_QT
+void ShowImage3D(const cv::Mat &image);
+#endif
+
+void ShowMarkers(const cv::Mat &markers, const std::string &window_name);
+
 template <typename T> class Image {
 protected:
   size_t width_ = 0;
