@@ -191,3 +191,16 @@ private:
     std::memcpy(data_, other.data_, size_);
   }
 };
+
+struct ObjectProperties {
+  int number;
+  float area;
+  float perimeter;
+  float elongation;
+  cv::Vec3b color;
+};
+
+std::vector<ObjectProperties>
+CalculateObjectsProperties(const cv::Mat &markers);
+
+void DisplayObjectProperties(const std::vector<ObjectProperties> &properties);

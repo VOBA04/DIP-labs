@@ -1,6 +1,9 @@
 #include "image.h"
 
 #include <iostream>
+#ifndef WITH_QT
+#include <limits>
+#endif
 #include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
 #include <opencv2/highgui.hpp>
@@ -11,6 +14,8 @@
 #ifdef WITH_QT
 #include <QApplication>
 #include <QFileDialog>
+#include <QInputDialog>
+#include <QString>
 #endif
 
 const int ESC_KEY = 27;
@@ -129,23 +134,76 @@ int main(int argc, char *argv[]) {
   markers_8u.convertTo(markers, CV_32S);
   ShowMarkers(markers, "Markers");
 
-  // cv::Mat sobel_x;
-  // cv::Mat sobel_y;
-  // cv::Mat sobel_xy;
-  // cv::Mat sobel_kernel =
-  //     (cv::Mat_<float>(3, 3) << -1, 0, 1, -2, 0, 2, -1, 0, 1);
-  // cv::filter2D(blurred_gray, sobel_x, CV_16S, sobel_kernel);
-  // cv::filter2D(blurred_gray, sobel_y, CV_16S, sobel_kernel.t());
-  // cv::Mat abs_sobel_x;
-  // cv::Mat abs_sobel_y;
-  // cv::convertScaleAbs(sobel_x, abs_sobel_x);
-  // cv::convertScaleAbs(sobel_y, abs_sobel_y);
-  // cv::addWeighted(abs_sobel_x, 0.5, abs_sobel_y, 0.5, 0, sobel_xy);
-  // cv::Mat sobel_binarized;
-  // cv::threshold(sobel_xy, sobel_binarized, 10, 255, cv::THRESH_BINARY);
-  // ShowImages({sobel_xy, sobel_binarized}, "Sobel on Gray Figures");
+  auto properties = CalculateObjectsProperties(markers);
+  DisplayObjectProperties(properties);
 
-  // ShowImage3D(sobel_xy);
+  if (!properties.empty()) {
+    int num_clusters = 3;
+#ifdef WITH_QT
+    bool ok = false;
+    num_clusters =
+        QInputDialog::getInt(nullptr, QStringLiteral("Количество кластеров"),
+                             QStringLiteral("Введите K (1..%1):")
+                                 .arg(static_cast<int>(properties.size())),
+                             3, 1, static_cast<int>(properties.size()), 1, &ok);
+    if (!ok) {
+      num_clusters = 0;
+    }
+#else
+    std::cout << "Введите количество кластеров K (1.." << properties.size()
+              << "): ";
+    int k_input = 3;
+    if (!(std::cin >> k_input)) {
+      std::cin.clear();
+      std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+      k_input = 3;
+    }
+    num_clusters =
+        std::max(1, std::min(k_input, static_cast<int>(properties.size())));
+#endif
+    if (num_clusters >= 1) {
+      cv::Mat features(static_cast<int>(properties.size()), 3, CV_32F);
+      for (size_t i = 0; i < properties.size(); ++i) {
+        features.at<float>(static_cast<int>(i), 0) = properties[i].area;
+        features.at<float>(static_cast<int>(i), 1) = properties[i].perimeter;
+        features.at<float>(static_cast<int>(i), 2) = properties[i].elongation;
+      }
+      cv::Mat labels;
+      cv::kmeans(
+          features, num_clusters, labels,
+          cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER,
+                           100, 1.0),
+          3, cv::KMEANS_PP_CENTERS);
+      const std::vector<cv::Vec3b> BASE_COLORS = {
+          cv::Vec3b(255, 0, 0),   // синий (BGR)
+          cv::Vec3b(0, 0, 255),   // красный
+          cv::Vec3b(0, 255, 0),   // зеленый
+          cv::Vec3b(0, 255, 255), // желтый
+          cv::Vec3b(255, 0, 255), // маджента
+          cv::Vec3b(255, 255, 0), // циан
+          cv::Vec3b(0, 128, 255), // оранжевый
+          cv::Vec3b(128, 0, 128), // фиолетовый
+          cv::Vec3b(128, 128, 0), // оливковый
+          cv::Vec3b(128, 0, 0)    // бордовый
+      };
+      std::vector<cv::Vec3b> cluster_colors;
+      cluster_colors.reserve(static_cast<size_t>(num_clusters));
+      for (int i = 0; i < num_clusters; ++i) {
+        cluster_colors.push_back(
+            BASE_COLORS[static_cast<size_t>(i % BASE_COLORS.size())]);
+      }
+      cv::Mat cluster_img = cv::Mat::zeros(markers.size(), CV_8UC3);
+      for (size_t i = 0; i < properties.size(); ++i) {
+        int label = labels.at<int>(static_cast<int>(i), 0);
+        int obj_num = properties[i].number;
+        cv::Mat mask = (markers == obj_num);
+        cluster_img.setTo(
+            cluster_colors[static_cast<size_t>(label % cluster_colors.size())],
+            mask);
+      }
+      ShowImages({cluster_img}, "Clusters");
+    }
+  }
 
   int key;
   do {

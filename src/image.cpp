@@ -4,6 +4,16 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #ifdef WITH_QT
+#include <QAbstractItemView>
+#include <QColor>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QHeaderView>
+#include <QLabel>
+#include <QMessageBox>
+#include <QTableWidget>
+#include <QVBoxLayout>
+#include <QWidget>
 #include <vtkActor.h>
 #include <vtkCamera.h>
 #include <vtkImageData.h>
@@ -105,13 +115,9 @@ void ShowImage3D(const cv::Mat &image) {
       static_cast<unsigned char *>(vtk_img->GetScalarPointer());
   memcpy(vtk_ptr, image.data,
          static_cast<size_t>(width) * static_cast<size_t>(height));
-
-  // Преобразуем 2D пиксельные значения в высоту (Z) через WarpScalar
   vtkSmartPointer<vtkImageDataGeometryFilter> geometry_filter =
       vtkSmartPointer<vtkImageDataGeometryFilter>::New();
   geometry_filter->SetInputData(vtk_img);
-
-  // Масштабируем высоту по максимальному значению интенсивности
   double min_val = 0.0;
   double max_val = 255.0;
   {
@@ -121,24 +127,20 @@ void ShowImage3D(const cv::Mat &image) {
     min_val = min_v;
     max_val = max_v > 0.0 ? max_v : 255.0;
   }
-  double target_height = std::max(width, height) * 0.2; // 20% от размера сетки
+  double target_height = std::max(width, height) * 0.2;
   double scale_factor = target_height / max_val;
-
   vtkSmartPointer<vtkWarpScalar> warp = vtkSmartPointer<vtkWarpScalar>::New();
   warp->SetInputConnection(geometry_filter->GetOutputPort());
   warp->SetNormal(0.0, 0.0, 1.0);
   warp->UseNormalOn();
   warp->SetScaleFactor(scale_factor);
-
   vtkSmartPointer<vtkPolyDataMapper> mapper =
       vtkSmartPointer<vtkPolyDataMapper>::New();
   mapper->SetInputConnection(warp->GetOutputPort());
   mapper->ScalarVisibilityOff();
-
   vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
   actor->SetMapper(mapper);
   actor->GetProperty()->SetColor(0.8, 0.8, 0.8);
-
   vtkSmartPointer<vtkRenderer> renderer = vtkSmartPointer<vtkRenderer>::New();
   renderer->AddActor(actor);
   renderer->SetBackground(0.1, 0.1, 0.2);
@@ -146,17 +148,14 @@ void ShowImage3D(const cv::Mat &image) {
   renderer->GetActiveCamera()->Azimuth(45);
   renderer->GetActiveCamera()->Elevation(30);
   renderer->GetActiveCamera()->OrthogonalizeViewUp();
-
   vtkSmartPointer<vtkRenderWindow> render_window =
       vtkSmartPointer<vtkRenderWindow>::New();
   render_window->AddRenderer(renderer);
   render_window->SetWindowName("VTK 3D Gray Image");
   render_window->SetSize(900, 700);
-
   vtkSmartPointer<vtkRenderWindowInteractor> interactor =
       vtkSmartPointer<vtkRenderWindowInteractor>::New();
   interactor->SetRenderWindow(render_window);
-
   render_window->Render();
   interactor->Start();
 }
@@ -178,4 +177,138 @@ void ShowMarkers(const cv::Mat &markers, const std::string &window_name) {
   cv::applyColorMap(display, display, cv::COLORMAP_JET);
   cv::namedWindow(window_name, cv::WINDOW_NORMAL);
   cv::imshow(window_name, display);
+}
+
+std::vector<ObjectProperties>
+CalculateObjectsProperties(const cv::Mat &markers) {
+  std::vector<ObjectProperties> properties;
+  double min_val;
+  double max_val;
+  minMaxLoc(markers, &min_val, &max_val);
+  int max_label = static_cast<int>(max_val);
+  double alpha = 0.0;
+  double beta = 0.0;
+  if (max_val != min_val) {
+    alpha = 255.0 / (max_val - min_val);
+    beta = -min_val * alpha;
+  }
+  for (int label = 1; label <= max_label; ++label) {
+    cv::Mat mask = (markers == label);
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<cv::Vec4i> hierarchy;
+    findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL,
+                 cv::CHAIN_APPROX_SIMPLE);
+    if (contours.empty()) {
+      continue;
+    }
+    const auto &contour = contours[0];
+    float area = static_cast<float>(cv::contourArea(contour));
+    float perimeter = static_cast<float>(cv::arcLength(contour, true));
+    float elongation = 1.0;
+    if (contour.size() >= 5) {
+      cv::RotatedRect ellipse = cv::fitEllipse(contour);
+      float major_axis = std::max(ellipse.size.width, ellipse.size.height);
+      float minor_axis = std::min(ellipse.size.width, ellipse.size.height);
+      if (minor_axis > 0) {
+        elongation = major_axis / minor_axis;
+      }
+    }
+    int scaled_label = 0;
+    if (max_val != min_val) {
+      scaled_label = cv::saturate_cast<uchar>(alpha * label + beta);
+    }
+    cv::Mat label_mat(1, 1, CV_8UC1, cv::Scalar(scaled_label));
+    cv::Mat color_mat;
+    cv::applyColorMap(label_mat, color_mat, cv::COLORMAP_JET);
+    cv::Vec3b color = color_mat.at<cv::Vec3b>(0, 0);
+    ObjectProperties prop = {label, area, perimeter, elongation, color};
+    properties.push_back(prop);
+  }
+  return properties;
+}
+
+void DisplayObjectProperties(const std::vector<ObjectProperties> &properties) {
+#ifdef WITH_QT
+  if (properties.empty()) {
+    QMessageBox::information(nullptr, QStringLiteral("Параметры сегментов"),
+                             QStringLiteral("Сегменты не найдены."));
+    return;
+  }
+  QDialog dialog;
+  dialog.setWindowTitle(QStringLiteral("Параметры сегментов"));
+  dialog.resize(520, 360);
+
+  auto *layout = new QVBoxLayout(&dialog);
+
+  auto *label = new QLabel(QStringLiteral("Найдено %1 сегментов")
+                               .arg(static_cast<int>(properties.size())));
+  label->setAlignment(Qt::AlignLeft);
+  layout->addWidget(label);
+
+  auto *table =
+      new QTableWidget(static_cast<int>(properties.size()), 5, &dialog);
+  table->setHorizontalHeaderLabels(
+      {QStringLiteral("№"), QStringLiteral("Площадь"),
+       QStringLiteral("Периметр"), QStringLiteral("Удлинение"),
+       QStringLiteral("Цвет")});
+  table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+  table->verticalHeader()->setVisible(false);
+  table->setSelectionMode(QAbstractItemView::NoSelection);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+  for (int row = 0; row < static_cast<int>(properties.size()); ++row) {
+    const auto &prop = properties[static_cast<size_t>(row)];
+    table->setItem(row, 0, new QTableWidgetItem(QString::number(prop.number)));
+    table->setItem(row, 1,
+                   new QTableWidgetItem(QString::number(
+                       static_cast<double>(prop.area), 'f', 2)));
+    table->setItem(row, 2,
+                   new QTableWidgetItem(QString::number(
+                       static_cast<double>(prop.perimeter), 'f', 2)));
+    table->setItem(row, 3,
+                   new QTableWidgetItem(QString::number(
+                       static_cast<double>(prop.elongation), 'f', 2)));
+    auto *color_item = new QTableWidgetItem;
+    QColor segment_color(prop.color[2], prop.color[1], prop.color[0]);
+    color_item->setData(Qt::DecorationRole, segment_color);
+    color_item->setFlags(Qt::ItemIsEnabled);
+    table->setItem(row, 4, color_item);
+  }
+
+  layout->addWidget(table);
+
+  auto *buttons =
+      new QDialogButtonBox(QDialogButtonBox::Ok, Qt::Horizontal, &dialog);
+  QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  layout->addWidget(buttons);
+
+  dialog.exec();
+#else
+  if (properties.empty()) {
+    std::cout << "Segment properties: no objects found." << std::endl;
+    return;
+  }
+
+  std::cout << "Segment properties (count = " << properties.size() << ")"
+            << std::endl;
+  std::cout << std::left << std::setw(6) << "#" << std::setw(12) << "Area"
+            << std::setw(12) << "Perimeter" << std::setw(12) << "Elongation"
+            << std::setw(12) << "Color(B,G,R)" << std::endl;
+  std::cout << std::string(54, '-') << std::endl;
+  std::cout.setf(std::ios::fixed);
+  std::cout << std::setprecision(2);
+  for (const auto &prop : properties) {
+    std::ostringstream color_stream;
+    color_stream << static_cast<int>(prop.color[0]) << ','
+                 << static_cast<int>(prop.color[1]) << ','
+                 << static_cast<int>(prop.color[2]);
+    std::cout << std::left << std::setw(6) << prop.number << std::setw(12)
+              << prop.area << std::setw(12) << prop.perimeter << std::setw(12)
+              << prop.elongation << std::setw(12) << color_stream.str()
+              << std::endl;
+  }
+  std::cout.unsetf(std::ios::fixed);
+  std::cout << std::defaultfloat;
+#endif
 }
