@@ -55,6 +55,7 @@
 ```bash
 sudo apt update
 sudo apt install cmake build-essential libopencv-dev
+sudo apt install libvtk9-dev 
 # Для Qt-файлового диалога (опционально)
 sudo apt install qtbase5-dev
 # CUDA Toolkit устанавливается из официальных репозиториев NVIDIA
