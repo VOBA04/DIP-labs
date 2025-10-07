@@ -14,11 +14,10 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 
 find_package(OpenCV REQUIRED)
 
-find_package(VTK REQUIRED)
-
 if(ENABLE_QT)
-    # Use Qt5 to match VTK's Qt dependency (apt libvtk9-dev commonly uses Qt5)
-    find_package(Qt5 COMPONENTS Widgets REQUIRED)
+# Use Qt5 to match VTK's Qt dependency (apt libvtk9-dev commonly uses Qt5)
+find_package(Qt5 COMPONENTS Widgets REQUIRED)
+    find_package(VTK REQUIRED)
     message(STATUS "Qt support: ENABLED")
 else()
     message(STATUS "Qt support: DISABLED")
