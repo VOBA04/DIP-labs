@@ -203,4 +203,7 @@ struct ObjectProperties {
 std::vector<ObjectProperties>
 CalculateObjectsProperties(const cv::Mat &markers);
 
+std::vector<ObjectProperties>
+CalculateObjectsPropertiesCPU(const cv::Mat &markers);
+
 void DisplayObjectProperties(const std::vector<ObjectProperties> &properties);

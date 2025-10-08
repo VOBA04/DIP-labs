@@ -1,5 +1,8 @@
 #include "image.h"
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -223,6 +226,183 @@ CalculateObjectsProperties(const cv::Mat &markers) {
     cv::Vec3b color = color_mat.at<cv::Vec3b>(0, 0);
     ObjectProperties prop = {label, area, perimeter, elongation, color};
     properties.push_back(prop);
+  }
+  return properties;
+}
+
+std::vector<ObjectProperties>
+CalculateObjectsPropertiesCPU(const cv::Mat &markers) {
+  // CPU-only implementation: no OpenCV algorithms, only basic loops
+  if (markers.empty()) {
+    throw std::invalid_argument("Input markers image is empty");
+  }
+  if (markers.type() != CV_32S) {
+    throw std::invalid_argument("Input markers image must be of type CV_32S");
+  }
+  int width = markers.cols;
+  int height = markers.rows;
+  int min_label = std::numeric_limits<int>::max();
+  int max_label = std::numeric_limits<int>::min();
+  for (int y = 0; y < height; ++y) {
+    const int *row = markers.ptr<int>(y);
+    for (int x = 0; x < width; ++x) {
+      const int V = row[x];
+      if (V < min_label) {
+        min_label = V;
+      }
+      if (V > max_label) {
+        max_label = V;
+      }
+    }
+  }
+  if (max_label < 1) {
+    return {};
+  }
+  struct Acc {
+    uint64_t count = 0;
+    uint64_t perimeter = 0;
+    double sumx = 0.0;
+    double sumy = 0.0;
+    double sumxx = 0.0;
+    double sumyy = 0.0;
+    double sumxy = 0.0;
+  };
+  std::vector<Acc> acc(static_cast<size_t>(max_label + 1));
+  auto is_out_of_bounds = [&](int nx, int ny) -> bool {
+    return nx < 0 || ny < 0 || nx >= width || ny >= height;
+  };
+  for (int y = 0; y < height; ++y) {
+    const int *row = markers.ptr<int>(y);
+    for (int x = 0; x < width; ++x) {
+      int label_val = row[x];
+      if (label_val <= 0) {
+        continue;
+      }
+      Acc &a = acc[static_cast<size_t>(label_val)];
+      a.count += 1;
+      a.sumx += static_cast<double>(x);
+      a.sumy += static_cast<double>(y);
+      a.sumxx += static_cast<double>(x) * static_cast<double>(x);
+      a.sumyy += static_cast<double>(y) * static_cast<double>(y);
+      a.sumxy += static_cast<double>(x) * static_cast<double>(y);
+      {
+        int nx = x;
+        int ny = y - 1;
+        if (is_out_of_bounds(nx, ny)) {
+          a.perimeter += 1;
+        } else {
+          int neighbor_label = markers.ptr<int>(ny)[nx];
+          if (neighbor_label != label_val) {
+            a.perimeter += 1;
+          }
+        }
+      }
+      {
+        int nx = x;
+        int ny = y + 1;
+        if (is_out_of_bounds(nx, ny)) {
+          a.perimeter += 1;
+        } else {
+          int neighbor_label = markers.ptr<int>(ny)[nx];
+          if (neighbor_label != label_val) {
+            a.perimeter += 1;
+          }
+        }
+      }
+      {
+        int nx = x - 1;
+        int ny = y;
+        if (is_out_of_bounds(nx, ny)) {
+          a.perimeter += 1;
+        } else {
+          int neighbor_label = markers.ptr<int>(ny)[nx];
+          if (neighbor_label != label_val) {
+            a.perimeter += 1;
+          }
+        }
+      }
+      {
+        int nx = x + 1;
+        int ny = y;
+        if (is_out_of_bounds(nx, ny)) {
+          a.perimeter += 1;
+        } else {
+          int neighbor_label = markers.ptr<int>(ny)[nx];
+          if (neighbor_label != label_val) {
+            a.perimeter += 1;
+          }
+        }
+      }
+    }
+  }
+  auto clamp01 = [](double t) {
+    if (t < 0.0) {
+      return 0.0;
+    }
+    if (t > 1.0) {
+      return 1.0;
+    }
+    return t;
+  };
+  auto jet_rgb = [&](double v) -> cv::Vec3b {
+    double r = clamp01(1.5 - std::fabs(4.0 * v - 3.0));
+    double g = clamp01(1.5 - std::fabs(4.0 * v - 2.0));
+    double b = clamp01(1.5 - std::fabs(4.0 * v - 1.0));
+    auto r8 = static_cast<unsigned char>(std::round(r * 255.0));
+    auto g8 = static_cast<unsigned char>(std::round(g * 255.0));
+    auto b8 = static_cast<unsigned char>(std::round(b * 255.0));
+    return {b8, g8, r8};
+  };
+  double alpha = 0.0;
+  double beta = 0.0;
+  if (max_label != min_label) {
+    alpha = 255.0 / static_cast<double>(max_label - min_label);
+    beta = -static_cast<double>(min_label) * alpha;
+  }
+  std::vector<ObjectProperties> properties;
+  properties.reserve(static_cast<size_t>(max_label));
+  for (int label = 1; label <= max_label; ++label) {
+    const Acc &a = acc[static_cast<size_t>(label)];
+    if (a.count == 0) {
+      continue;
+    }
+    auto area_f = static_cast<float>(a.count);
+    auto perimeter_f = static_cast<float>(a.perimeter);
+    float elongation = 1.0F;
+    if (a.count >= 2) {
+      auto n = static_cast<double>(a.count);
+      double mx = a.sumx / n;
+      double my = a.sumy / n;
+      double varx = a.sumxx / n - mx * mx;
+      double vary = a.sumyy / n - my * my;
+      double covxy = a.sumxy / n - mx * my;
+      double tr = varx + vary;
+      double disc = tr * tr - 4.0 * (varx * vary - covxy * covxy);
+      double root = disc > 0.0 ? std::sqrt(disc) : 0.0;
+      double l1 = 0.5 * (tr + root);
+      double l2 = 0.5 * (tr - root);
+      double eps = 1e-12;
+      if (l2 > eps) {
+        elongation = static_cast<float>(std::sqrt(l1 / l2));
+      } else {
+        elongation = 1.0F;
+      }
+    }
+    int scaled_label = 0;
+    if (max_label != min_label) {
+      double sval = alpha * static_cast<double>(label) + beta;
+      if (sval < 0.0) {
+        sval = 0.0;
+      }
+      if (sval > 255.0) {
+        sval = 255.0;
+      }
+      scaled_label = static_cast<int>(std::round(sval));
+    }
+    double val = static_cast<double>(scaled_label) / 255.0;
+    cv::Vec3b color_bgr = jet_rgb(val);
+    properties.push_back(
+        ObjectProperties{label, area_f, perimeter_f, elongation, color_bgr});
   }
   return properties;
 }

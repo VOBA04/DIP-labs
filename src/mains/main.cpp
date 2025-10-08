@@ -134,7 +134,8 @@ int main(int argc, char *argv[]) {
   markers_8u.convertTo(markers, CV_32S);
   ShowMarkers(markers, "Markers");
 
-  auto properties = CalculateObjectsProperties(markers);
+  // auto properties = CalculateObjectsProperties(markers);
+  auto properties = CalculateObjectsPropertiesCPU(markers);
   DisplayObjectProperties(properties);
 
   if (!properties.empty()) {
