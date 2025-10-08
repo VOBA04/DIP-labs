@@ -95,20 +95,28 @@ int main(int argc, char *argv[]) {
   cv::cvtColor(figures, figures, cv::COLOR_HSV2BGR);
   ShowImages({figures}, "Figures");
 
-  cv::Mat gray_figures;
-  cv::cvtColor(figures, gray_figures, cv::COLOR_BGR2GRAY);
-  // ShowImages({gray_figures}, "Gray Figures");
+  std::vector<cv::Mat> bgr_channels;
+  cv::split(figures, bgr_channels);
+  ShowImages(bgr_channels, "BGR");
 
-  cv::Mat dist;
-  cv::distanceTransform(s_mask, dist, cv::DIST_L2, 3);
-  cv::normalize(dist, dist, 0, 1.0, cv::NORM_MINMAX);
-  cv::Mat dist_bin;
-  cv::threshold(dist, dist_bin, 0.8, 1.0, cv::THRESH_BINARY);
-  ShowImages({dist, dist_bin}, "Distance Transform");
-  dist_bin.convertTo(dist_bin, CV_8U);
+  std::vector<cv::Mat> masks;
+  cv::Mat g_mask;
+  cv::threshold(bgr_channels[1], g_mask, 190, 255, cv::THRESH_BINARY);
+  masks.push_back(g_mask.clone());
+  cv::Mat kernel_1 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
+  cv::morphologyEx(g_mask, g_mask, cv::MORPH_OPEN, kernel_1);
+  masks.push_back(g_mask.clone());
+  cv::Mat kernel_2 =
+      cv::getStructuringElement(cv::MORPH_RECT, cv::Size(19, 19));
+  cv::morphologyEx(g_mask, g_mask, cv::MORPH_CLOSE, kernel_2);
+  masks.push_back(g_mask.clone());
+  cv::Mat kernel_3 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+  cv::morphologyEx(g_mask, g_mask, cv::MORPH_OPEN, kernel_3);
+  masks.push_back(g_mask.clone());
+  ShowImages(masks, "G Masks");
 
   cv::Mat markers;
-  cv::connectedComponents(dist_bin, markers);
+  cv::connectedComponents(g_mask, markers);
 
   cv::Mat markers_8u;
   markers.convertTo(markers_8u, CV_8U);
@@ -120,7 +128,7 @@ int main(int argc, char *argv[]) {
     changed = false;
     cv::Mat dilated;
     cv::dilate(markers_8u, dilated, morph_kernel_4);
-    dilated.setTo(0, s_mask == 0);
+    dilated.setTo(0, g_mask == 0);
     cv::Mat update_mask;
     cv::bitwise_and(markers_8u == 0, dilated != 0, update_mask);
     const int UPDATED_PIXELS = cv::countNonZero(update_mask);
@@ -134,7 +142,6 @@ int main(int argc, char *argv[]) {
   markers_8u.convertTo(markers, CV_32S);
   ShowMarkers(markers, "Markers");
 
-  // auto properties = CalculateObjectsProperties(markers);
   auto properties = CalculateObjectsPropertiesCPU(markers);
   DisplayObjectProperties(properties);
 
