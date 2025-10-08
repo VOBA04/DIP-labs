@@ -106,9 +106,6 @@ int main(int argc, char *argv[]) {
       cv::getStructuringElement(cv::MORPH_RECT, cv::Size(11, 11));
   cv::morphologyEx(g_mask, g_mask, cv::MORPH_DILATE, kernel_2);
   masks.push_back(g_mask.clone());
-  // cv::Mat kernel_3 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(7,
-  // 7)); cv::morphologyEx(g_mask, g_mask, cv::MORPH_ERODE, kernel_3);
-  // masks.push_back(g_mask.clone());
   ShowImages(masks, "G Masks");
 
   cv::Mat markers;
