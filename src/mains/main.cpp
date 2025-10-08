@@ -95,24 +95,20 @@ int main(int argc, char *argv[]) {
   cv::cvtColor(figures, figures, cv::COLOR_HSV2BGR);
   ShowImages({figures}, "Figures");
 
-  std::vector<cv::Mat> bgr_channels;
-  cv::split(figures, bgr_channels);
-  ShowImages(bgr_channels, "BGR");
-
   std::vector<cv::Mat> masks;
   cv::Mat g_mask;
-  cv::threshold(bgr_channels[1], g_mask, 190, 255, cv::THRESH_BINARY);
+  cv::inRange(h_figures, 35, 95, g_mask);
   masks.push_back(g_mask.clone());
-  cv::Mat kernel_1 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
-  cv::morphologyEx(g_mask, g_mask, cv::MORPH_OPEN, kernel_1);
+  cv::Mat kernel_1 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
+  cv::morphologyEx(g_mask, g_mask, cv::MORPH_ERODE, kernel_1);
   masks.push_back(g_mask.clone());
   cv::Mat kernel_2 =
-      cv::getStructuringElement(cv::MORPH_RECT, cv::Size(19, 19));
-  cv::morphologyEx(g_mask, g_mask, cv::MORPH_CLOSE, kernel_2);
+      cv::getStructuringElement(cv::MORPH_RECT, cv::Size(11, 11));
+  cv::morphologyEx(g_mask, g_mask, cv::MORPH_DILATE, kernel_2);
   masks.push_back(g_mask.clone());
-  cv::Mat kernel_3 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(5, 5));
-  cv::morphologyEx(g_mask, g_mask, cv::MORPH_OPEN, kernel_3);
-  masks.push_back(g_mask.clone());
+  // cv::Mat kernel_3 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(7,
+  // 7)); cv::morphologyEx(g_mask, g_mask, cv::MORPH_ERODE, kernel_3);
+  // masks.push_back(g_mask.clone());
   ShowImages(masks, "G Masks");
 
   cv::Mat markers;
