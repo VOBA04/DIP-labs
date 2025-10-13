@@ -206,6 +206,50 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  std::vector<std::vector<cv::Point>> contours;
+  std::vector<cv::Vec4i> hierarchy;
+  cv::findContours(markers_8u, contours, hierarchy, cv::RETR_EXTERNAL,
+                   cv::CHAIN_APPROX_SIMPLE);
+  std::vector<cv::Mat> digits(contours.size());
+  for (size_t i = 0; i < contours.size(); i++) {
+    std::vector<cv::Point> pts = contours[i];
+    if (pts.size() < 5) {
+      continue;
+    }
+    CV_Assert(pts.size() <=
+              static_cast<size_t>(std::numeric_limits<int>::max()));
+    cv::Mat data_pts = cv::Mat(static_cast<int>(pts.size()), 2, CV_64F);
+    for (int j = 0; j < pts.size(); j++) {
+      data_pts.at<double>(j, 0) = pts[j].x;
+      data_pts.at<double>(j, 1) = pts[j].y;
+    }
+    cv::PCA pca_analysis(data_pts, cv::Mat(), cv::PCA::DATA_AS_ROW);
+    cv::Point2d center(pca_analysis.mean.at<double>(0, 0),
+                       pca_analysis.mean.at<double>(0, 1));
+    cv::Vec2d eigen_vec = pca_analysis.eigenvectors.row(0);
+    double angle = atan2(eigen_vec[1], eigen_vec[0]) * 180.0 / CV_PI;
+    angle -= 90.0;
+    cv::Rect bbox = cv::boundingRect(pts);
+    const int EXPAND_PERCENT = 15;
+    int expand_x = static_cast<int>(bbox.width * EXPAND_PERCENT / 100.0);
+    int expand_y = static_cast<int>(bbox.height * EXPAND_PERCENT / 100.0);
+    int x = std::max(bbox.x - expand_x, 0);
+    int y = std::max(bbox.y - expand_y, 0);
+    int w = std::min(bbox.width + 2 * expand_x, markers_8u.cols - x);
+    int h = std::min(bbox.height + 2 * expand_y, markers_8u.rows - y);
+    cv::Rect expanded_bbox(x, y, w, h);
+    cv::Mat roi = markers_8u(expanded_bbox);
+    cv::Mat rot_mat = cv::getRotationMatrix2D(
+        cv::Point2f(static_cast<float>(roi.cols) / 2.0F,
+                    static_cast<float>(roi.rows) / 2.0F),
+        angle, 1.0F);
+    cv::Mat rotated;
+    cv::warpAffine(roi, rotated, rot_mat, roi.size(), cv::INTER_CUBIC);
+    cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
+    digits[i] = rotated;
+  }
+  ShowImages(digits, "Digit ROIs (PCA aligned)");
+
   int key;
   do {
     key = cv::waitKey(0);
