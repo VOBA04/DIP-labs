@@ -1,6 +1,7 @@
 #include "image.h"
 
 #include <iostream>
+#include <opencv2/core/base.hpp>
 #ifndef WITH_QT
 #include <limits>
 #endif
@@ -106,6 +107,12 @@ int main(int argc, char *argv[]) {
   cv::threshold(dist, dist_bin, 0.8, 1.0, cv::THRESH_BINARY);
   ShowImages({dist, dist_bin}, "Distance Transform");
   dist_bin.convertTo(dist_bin, CV_8U);
+
+  // Вывод расстояний в 3D
+  //  cv::Mat dist_3d;
+  //  cv::normalize(dist, dist_3d, 0, 255, cv::NORM_MINMAX);
+  //  dist_3d.convertTo(dist_3d, CV_8U);
+  //  ShowImage3D(dist_3d);
 
   cv::Mat markers;
   cv::connectedComponents(dist_bin, markers);

@@ -26,7 +26,7 @@
 
 ## Пример работы
 
-![Пример кластеризации](./images/example/Clusters_screenshot_07.10.2025.png)
+![Пример кластеризации](./images/example/Clusters_figures.png)
 
 ## Реализация в проекте
 
