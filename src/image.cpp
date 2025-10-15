@@ -492,3 +492,173 @@ void DisplayObjectProperties(const std::vector<ObjectProperties> &properties) {
   std::cout << std::defaultfloat;
 #endif
 }
+
+// Helper to draw PCA axes for a single contour onto a BGR canvas
+static void DrawPCAAxesOnContour(cv::Mat &canvas,
+                                 const std::vector<cv::Point> &cnt) {
+  if (cnt.size() < 5) {
+    return;
+  }
+  CV_Assert(cnt.size() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+  cv::Mat data_pts(static_cast<int>(cnt.size()), 2, CV_64F);
+  for (int i = 0; i < data_pts.rows; ++i) {
+    data_pts.at<double>(i, 0) =
+        static_cast<double>(cnt[static_cast<size_t>(i)].x);
+    data_pts.at<double>(i, 1) =
+        static_cast<double>(cnt[static_cast<size_t>(i)].y);
+  }
+  cv::PCA pca_analysis(data_pts, cv::Mat(), cv::PCA::DATA_AS_ROW);
+  double cx = pca_analysis.mean.at<double>(0, 0);
+  double cy = pca_analysis.mean.at<double>(0, 1);
+  cv::Vec2d v1 = pca_analysis.eigenvectors.row(0);
+  cv::Vec2d v2 = pca_analysis.eigenvectors.row(1);
+
+  double min1 = 0.0;
+  double max1 = 0.0;
+  double min2 = 0.0;
+  double max2 = 0.0;
+  bool first = true;
+  for (const auto &p : cnt) {
+    double dx = static_cast<double>(p.x) - cx;
+    double dy = static_cast<double>(p.y) - cy;
+    double t1 = dx * v1[0] + dy * v1[1];
+    double t2 = dx * v2[0] + dy * v2[1];
+    if (first) {
+      min1 = max1 = t1;
+      min2 = max2 = t2;
+      first = false;
+    } else {
+      if (t1 < min1) {
+        min1 = t1;
+      }
+      if (t1 > max1) {
+        max1 = t1;
+      }
+      if (t2 < min2) {
+        min2 = t2;
+      }
+      if (t2 > max2) {
+        max2 = t2;
+      }
+    }
+  }
+
+  auto to_pt = [&](const cv::Point2d &pt) {
+    return cv::Point(static_cast<int>(std::round(pt.x)),
+                     static_cast<int>(std::round(pt.y)));
+  };
+
+  cv::Point2d c(cx, cy);
+  cv::Point p1a = to_pt(c + cv::Point2d(v1[0], v1[1]) * max1);
+  cv::Point p1b = to_pt(c + cv::Point2d(v1[0], v1[1]) * min1);
+  cv::Point p2a = to_pt(c + cv::Point2d(v2[0], v2[1]) * max2);
+  cv::Point p2b = to_pt(c + cv::Point2d(v2[0], v2[1]) * min2);
+
+  cv::circle(canvas, to_pt(c), 3, cv::Scalar(0, 255, 255), cv::FILLED,
+             cv::LINE_AA);
+  cv::line(canvas, p1a, p1b, cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+  cv::line(canvas, p2a, p2b, cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
+}
+
+void ShowPCA(const cv::Mat &markers, const cv::Mat &image,
+             const std::string &window_name) {
+  if (markers.empty()) {
+    throw std::invalid_argument("Input image is empty");
+  }
+  if (markers.type() != CV_8UC1) {
+    throw std::invalid_argument(
+        "Input image must be single-channel CV_8U (grayscale)");
+  }
+  if (image.empty()) {
+    throw std::invalid_argument("Input image is empty");
+  }
+  if (image.type() != CV_8UC3) {
+    throw std::invalid_argument(
+        "Input image must be 3-channel CV_8UC3 (BGR color)");
+  }
+  if (markers.size() != image.size()) {
+    throw std::invalid_argument("Input images must have the same size");
+  }
+
+  // Find separate figures by contours
+  std::vector<std::vector<cv::Point>> contours;
+  std::vector<cv::Vec4i> hierarchy;
+  cv::findContours(markers, contours, hierarchy, cv::RETR_EXTERNAL,
+                   cv::CHAIN_APPROX_SIMPLE);
+
+  auto to_pt = [&](const cv::Point2d &p) {
+    return cv::Point(static_cast<int>(std::round(p.x)),
+                     static_cast<int>(std::round(p.y)));
+  };
+
+  cv::Mat canvas = image.clone();
+  for (const auto &cnt : contours) {
+    if (cnt.size() < 5) {
+      continue; // PCA needs enough points
+    }
+
+    // Build data matrix for PCA from contour points
+    CV_Assert(cnt.size() <=
+              static_cast<size_t>(std::numeric_limits<int>::max()));
+    cv::Mat data_pts(static_cast<int>(cnt.size()), 2, CV_64F);
+    for (int i = 0; i < data_pts.rows; i++) {
+      data_pts.at<double>(i, 0) =
+          static_cast<double>(cnt[static_cast<size_t>(i)].x);
+      data_pts.at<double>(i, 1) =
+          static_cast<double>(cnt[static_cast<size_t>(i)].y);
+    }
+
+    cv::PCA pca_analysis(data_pts, cv::Mat(), cv::PCA::DATA_AS_ROW);
+    double cx = pca_analysis.mean.at<double>(0, 0);
+    double cy = pca_analysis.mean.at<double>(0, 1);
+    cv::Vec2d v1 = pca_analysis.eigenvectors.row(0); // principal dir
+    cv::Vec2d v2 = pca_analysis.eigenvectors.row(1); // secondary dir
+
+    // Compute extents along each axis by projecting contour points
+    double min1 = 0.0;
+    double max1 = 0.0;
+    double min2 = 0.0;
+    double max2 = 0.0;
+    bool first = true;
+    for (const auto &p : cnt) {
+      const double DX = static_cast<double>(p.x) - cx;
+      const double DY = static_cast<double>(p.y) - cy;
+      const double T1 = DX * v1[0] + DY * v1[1];
+      const double T2 = DX * v2[0] + DY * v2[1];
+      if (first) {
+        min1 = max1 = T1;
+        min2 = max2 = T2;
+        first = false;
+      } else {
+        if (T1 < min1) {
+          min1 = T1;
+        }
+        if (T1 > max1) {
+          max1 = T1;
+        }
+        if (T2 < min2) {
+          min2 = T2;
+        }
+        if (T2 > max2) {
+          max2 = T2;
+        }
+      }
+    }
+
+    // Endpoints for axes spanning the figure
+    cv::Point2d c(cx, cy);
+    cv::Point p1a = to_pt(c + cv::Point2d(v1[0], v1[1]) * max1);
+    cv::Point p1b = to_pt(c + cv::Point2d(v1[0], v1[1]) * min1);
+    cv::Point p2a = to_pt(c + cv::Point2d(v2[0], v2[1]) * max2);
+    cv::Point p2b = to_pt(c + cv::Point2d(v2[0], v2[1]) * min2);
+
+    // Draw centroid and axes for this figure
+    cv::line(canvas, p1a, p1b, cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+    cv::line(canvas, p2a, p2b, cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
+    cv::circle(canvas, to_pt(c), 3, cv::Scalar(0, 255, 255), cv::FILLED,
+               cv::LINE_AA);
+  }
+
+  cv::namedWindow(window_name, cv::WINDOW_NORMAL);
+  cv::imshow(window_name, canvas);
+}

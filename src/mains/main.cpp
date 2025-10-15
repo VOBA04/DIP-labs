@@ -1,6 +1,8 @@
 #include "image.h"
 
 #include <iostream>
+#include <opencv2/core/types.hpp>
+#include <ostream>
 #ifndef WITH_QT
 #include <limits>
 #endif
@@ -246,8 +248,21 @@ int main(int argc, char *argv[]) {
     cv::Mat rotated;
     cv::warpAffine(roi, rotated, rot_mat, roi.size(), cv::INTER_CUBIC);
     cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
+    cv::Moments m = cv::moments(rotated, true);
+    double cy = m.m01 / m.m00;
+    double center_y = static_cast<double>(rotated.rows) / 2.0;
+    if (cy > center_y) {
+      angle += 180.0;
+      rot_mat = cv::getRotationMatrix2D(
+          cv::Point2f(static_cast<float>(roi.cols) / 2.0F,
+                      static_cast<float>(roi.rows) / 2.0F),
+          angle, 1.0F);
+      cv::warpAffine(roi, rotated, rot_mat, roi.size(), cv::INTER_CUBIC);
+      cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
+    }
     digits[i] = rotated;
   }
+  ShowPCA(markers_8u, img, "PCA Axes");
   ShowImages(digits, "Digit ROIs (PCA aligned)");
 
   int key;

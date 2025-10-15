@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <opencv2/core/mat.hpp>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 void ShowImages(const std::vector<cv::Mat> &images,
@@ -207,3 +208,6 @@ std::vector<ObjectProperties>
 CalculateObjectsPropertiesCPU(const cv::Mat &markers);
 
 void DisplayObjectProperties(const std::vector<ObjectProperties> &properties);
+
+void ShowPCA(const cv::Mat &markers, const cv::Mat &image,
+             const std::string &window_name);
