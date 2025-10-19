@@ -256,7 +256,7 @@ int main(int argc, char *argv[]) {
       if (device.is_cuda()) {
         x = x.to(torch::kCUDA, true);
       } else if (device.is_mps()) {
-        x = x.to(torch::kMPS, true);
+        x = x.to(torch::kMPS, false);
       }
       auto out = model->Forward(x);           // log-probs [1,10]
       auto probs = out.exp().to(torch::kCPU); // convert to probabilities

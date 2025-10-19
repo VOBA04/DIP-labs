@@ -274,8 +274,8 @@ auto main(int argc, char *argv[]) -> int {
         batch_x = batch_x.to(torch::kCUDA, true);
         batch_y = batch_y.to(torch::kCUDA, true);
       } else if (device.is_mps()) {
-        batch_x = batch_x.to(torch::kMPS, true);
-        batch_y = batch_y.to(torch::kMPS, true);
+        batch_x = batch_x.to(torch::kMPS, false);
+        batch_y = batch_y.to(torch::kMPS, false);
       }
       auto output = model->Forward(batch_x); // logits or log-probs
       auto loss = torch::nll_loss(output, batch_y);

@@ -145,8 +145,8 @@ auto main(int argc, char *argv[]) -> int {
         x = x.to(torch::kCUDA, true);
         y = y.to(torch::kCUDA, true);
       } else if (device.is_mps()) {
-        x = x.to(torch::kMPS, true);
-        y = y.to(torch::kMPS, true);
+        x = x.to(torch::kMPS, false);
+        y = y.to(torch::kMPS, false);
       }
       auto out = model->Forward(x);
       auto loss = torch::nll_loss(out, y);
