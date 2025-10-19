@@ -1,8 +1,11 @@
 #include "image.h"
 
+#include <iomanip>
 #include <iostream>
+#include <opencv2/core/base.hpp>
 #include <opencv2/core/types.hpp>
 #include <ostream>
+#include <sstream>
 #ifndef WITH_QT
 #include <limits>
 #endif
@@ -13,6 +16,8 @@
 #include <opencv2/imgproc.hpp>
 #include <vector>
 
+#include <torch/torch.h>
+
 #ifdef WITH_QT
 #include <QApplication>
 #include <QFileDialog>
@@ -21,6 +26,8 @@
 #endif
 
 const int ESC_KEY = 27;
+
+#include "digitnet.h"
 
 int main(int argc, char *argv[]) {
   std::string image_path;
@@ -189,10 +196,101 @@ int main(int argc, char *argv[]) {
       cv::warpAffine(roi, rotated, rot_mat, roi.size(), cv::INTER_CUBIC);
       cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
     }
-    digits[i] = rotated;
+    cv::threshold(rotated, rotated, 128, 255, cv::THRESH_BINARY);
+    digits[i] = rotated.clone();
   }
   ShowPCA(markers_8u, img, "PCA Axes");
-  ShowImages(digits, "Digit ROIs (PCA aligned)");
+  {
+    std::vector<cv::Mat> digits_display;
+    digits_display.reserve(digits.size());
+    for (const auto &d : digits) {
+      if (!d.empty()) {
+        digits_display.push_back(d);
+      }
+    }
+    if (!digits_display.empty()) {
+      ShowImages(digits_display, "Digit ROIs (PCA aligned)");
+    }
+  }
+
+  // Ask for model path (Qt dialog or terminal prompt), then run predictions
+  std::string model_path;
+#ifdef WITH_QT
+  {
+    QString chosen = QFileDialog::getOpenFileName(nullptr, "Выберите модель",
+                                                  QString::fromUtf8(MODELS),
+                                                  "Torch Model (*.pt)");
+    if (chosen.isEmpty()) {
+      std::cerr << "Модель не выбрана. Завершение." << std::endl;
+      int key;
+      do {
+        key = cv::waitKey(0);
+      } while (key != ESC_KEY);
+      cv::destroyAllWindows();
+      return 0;
+    }
+    model_path = chosen.toStdString();
+  }
+#else
+  {
+    std::cout << "Введите путь к модели (.pt)\nПример: " << MODELS
+              << "/digit_model_mnist_5.pt\n> ";
+    std::getline(std::cin, model_path);
+    if (model_path.empty()) {
+      model_path = std::string(MODELS) + "/digit_model_mnist_5.pt";
+    }
+  }
+#endif
+
+  try {
+    torch::Device device(torch::cuda::is_available() ? torch::kCUDA
+                                                     : torch::kCPU);
+    auto model = std::make_shared<DigitNet>();
+    torch::load(model, model_path);
+    model->to(device);
+    model->eval();
+    torch::NoGradGuard no_grad;
+
+    std::vector<int> preds(digits.size(), -1);
+    std::vector<float> confs(digits.size(), 0.0F);
+    for (size_t i = 0; i < digits.size(); ++i) {
+      const cv::Mat &digit = digits[i];
+      if (digit.empty()) {
+        continue;
+      }
+      auto x = MatToTensor28x28(digit);
+      if (device.is_cuda()) {
+        x = x.to(torch::kCUDA, /*non_blocking=*/true);
+      }
+      auto out = model->Forward(x);           // log-probs [1,10]
+      auto probs = out.exp().to(torch::kCPU); // convert to probabilities
+      int pred = probs.argmax(1).item<int>();
+      auto prob = probs[0][pred].item<float>();
+      preds[i] = pred;
+      confs[i] = prob;
+    }
+
+    std::vector<cv::Mat> digits_annotated;
+    digits_annotated.reserve(digits.size());
+    for (size_t i = 0; i < digits.size(); ++i) {
+      if (preds[i] >= 0) {
+        std::ostringstream oss;
+        oss << preds[i] << " (" << std::fixed << std::setprecision(1)
+            << (confs[i] * 100.0F) << "%)";
+        std::string text = oss.str();
+        cv::Mat canvas = AddBottomText(digits[i], 30, text);
+        digits_annotated.push_back(canvas);
+      } else {
+        digits_annotated.push_back(digits[i]);
+      }
+    }
+    if (!digits_annotated.empty()) {
+      ShowImages(digits_annotated, "Digit Predictions");
+    }
+  } catch (const std::exception &e) {
+    std::cerr << "Ошибка при загрузке/инференсе модели: " << e.what()
+              << std::endl;
+  }
 
   int key;
   do {

@@ -20,6 +20,16 @@ void ShowMarkers(const cv::Mat &markers, const std::string &window_name);
 // Загрузка одного изображения в тензор [1,1,28,28], float32 в диапазоне [0,1]
 auto LoadImage(const std::string &path) -> torch::Tensor;
 
+// Преобразовать произвольный ROI в центрированный тензор [1,1,28,28], [0,1]
+auto MatToTensor28x28(const cv::Mat &src) -> torch::Tensor;
+
+// Увеличить изображение снизу на heightPx пикселей и написать текст на чёрном
+// фоне. Возвращает новое изображение той же ширины и того же типа, что и
+// исходное. Текст масштабируется так, чтобы поместиться по высоте и (при
+// необходимости) по ширине.
+auto AddBottomText(const cv::Mat &img, int heightPx,
+                   const std::string &text) -> cv::Mat;
+
 template <typename T> class Image {
 protected:
   size_t width_ = 0;

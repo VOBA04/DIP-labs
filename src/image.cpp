@@ -603,3 +603,127 @@ auto LoadImage(const std::string &path) -> torch::Tensor {
   tensor = tensor.permute({0, 3, 1, 2}); // [1,1,28,28]
   return tensor.clone();
 }
+
+auto MatToTensor28x28(const cv::Mat &src) -> torch::Tensor {
+  // Convert any input to a centered 28x28 grayscale float tensor in [0,1]
+  if (src.empty()) {
+    return torch::zeros({1, 1, 28, 28}, torch::kFloat);
+  }
+  cv::Mat gray;
+  if (src.channels() == 1) {
+    gray = src.clone();
+  } else {
+    cv::cvtColor(src, gray, cv::COLOR_BGR2GRAY);
+  }
+  if (gray.type() != CV_8UC1) {
+    cv::Mat tmp;
+    gray.convertTo(tmp, CV_8U);
+    gray = tmp;
+  }
+  std::vector<cv::Point> pts;
+  cv::findNonZero(gray, pts);
+  if (pts.empty()) {
+    return torch::zeros({1, 1, 28, 28}, torch::kFloat);
+  }
+  cv::Rect bb = cv::boundingRect(pts);
+  cv::Mat crop = gray(bb);
+  int tgt = 20;
+  int cw = crop.cols;
+  int ch = crop.rows;
+  double scale = cw > ch ? static_cast<double>(tgt) / static_cast<double>(cw)
+                         : static_cast<double>(tgt) / static_cast<double>(ch);
+  int rw = std::max(1, static_cast<int>(std::round(cw * scale)));
+  int rh = std::max(1, static_cast<int>(std::round(ch * scale)));
+  cv::Mat resized;
+  cv::resize(crop, resized, cv::Size(rw, rh), 0, 0,
+             (scale < 1.0 ? cv::INTER_AREA : cv::INTER_LINEAR));
+  cv::Mat canvas8u(28, 28, CV_8UC1, cv::Scalar(0));
+  int x = (28 - rw) / 2;
+  int y = (28 - rh) / 2;
+  resized.copyTo(canvas8u(cv::Rect(x, y, rw, rh)));
+  cv::Mat canvas32f;
+  canvas8u.convertTo(canvas32f, CV_32F, 1.0 / 255.0);
+  auto tensor = torch::from_blob(canvas32f.ptr<float>(0), {1, 1, 28, 28},
+                                 torch::TensorOptions().dtype(torch::kFloat));
+  return tensor.clone();
+}
+
+auto AddBottomText(const cv::Mat &img, int heightPx,
+                   const std::string &text) -> cv::Mat {
+  if (img.empty()) {
+    throw std::invalid_argument("Input image is empty");
+  }
+  if (heightPx <= 0) {
+    // Nothing to add; return copy of original
+    return img.clone();
+  }
+
+  // Create output canvas: same width/type as input, increased height
+  const int NEW_HEIGHT = img.rows + heightPx;
+  cv::Mat out(NEW_HEIGHT, img.cols, img.type(), cv::Scalar::all(0));
+
+  // Copy original image to the top region
+  img.copyTo(out(cv::Rect(0, 0, img.cols, img.rows)));
+
+  if (!text.empty()) {
+    // Determine text color and thickness depending on channels and depth
+    cv::Scalar color;
+    switch (out.channels()) {
+    case 1:
+      color = cv::Scalar(255);
+      break; // white on black
+    case 3:
+      color = cv::Scalar(255, 255, 255);
+      break; // BGR white
+    case 4:
+      color = cv::Scalar(255, 255, 255, 255);
+      break; // BGRA white
+    default:
+      color = cv::Scalar(255);
+      break;
+    }
+
+    // Compute font scale to fit text heightPx with some padding
+    const int PAD_TOP = std::max(0, heightPx / 8);
+    const int PAD_BOTTOM = std::max(0, heightPx / 8);
+    const int USABLE_H = std::max(1, heightPx - PAD_TOP - PAD_BOTTOM);
+    const int THICKNESS = std::max(1, USABLE_H / 12); // heuristics
+    const int BASE_FONT = cv::FONT_HERSHEY_SIMPLEX;
+
+    // Calibrate font scale: text height ~ scale * factor + thickness
+    // Use cv::getTextSize; iterate to satisfy height and width constraints
+    double scale = 1.0;
+    auto fits = [&](double s) {
+      int baseline = 0;
+      cv::Size sz = cv::getTextSize(text, BASE_FONT, s, THICKNESS, &baseline);
+      return sz.height + baseline <= USABLE_H &&
+             sz.width <= out.cols - 8; // small side margin
+    };
+    // Increase scale until just before overflow, with cap to avoid long loops
+    scale = 0.1;
+    for (int i = 0; i < 200 && fits(scale); ++i) {
+      scale += 0.05;
+    }
+    // Back off one step if last increment overflowed
+    while (!fits(scale) && scale > 0.05) {
+      scale -= 0.01;
+    }
+
+    // Compute final text size and baseline
+    int baseline = 0;
+    cv::Size text_size =
+        cv::getTextSize(text, BASE_FONT, scale, THICKNESS, &baseline);
+
+    // Center text horizontally; place vertically within bottom band
+    int x = std::max(0, (out.cols - text_size.width) / 2);
+    int band_top = img.rows + PAD_TOP;
+    int y = band_top + std::max(text_size.height, USABLE_H - (baseline));
+    // Clamp y not to overflow outside the image
+    y = std::min(y, out.rows - PAD_BOTTOM);
+
+    cv::putText(out, text, cv::Point(x, y), BASE_FONT, scale, color, THICKNESS,
+                cv::LINE_AA);
+  }
+
+  return out;
+}
