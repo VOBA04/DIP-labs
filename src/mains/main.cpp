@@ -260,6 +260,7 @@ int main(int argc, char *argv[]) {
       cv::warpAffine(roi, rotated, rot_mat, roi.size(), cv::INTER_CUBIC);
       cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
     }
+    cv::threshold(rotated, rotated, 128, 255, cv::THRESH_BINARY);
     digits[i] = rotated;
   }
   ShowPCA(markers_8u, img, "PCA Axes");
