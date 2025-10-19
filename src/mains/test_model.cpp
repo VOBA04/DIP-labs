@@ -94,9 +94,13 @@ auto main(int argc, char *argv[]) -> int {
 #endif
 
   try {
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA
-                                                     : torch::kCPU);
-    std::cout << "Device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
+    torch::Device device(
+        torch::cuda::is_available()
+            ? torch::kCUDA
+            : (torch::mps::is_available() ? torch::kMPS : torch::kCPU));
+    std::cout << "Device: "
+              << (device.is_cuda() ? "CUDA" : (device.is_mps() ? "MPS" : "CPU"))
+              << std::endl;
     const std::string TEST_ROOT = std::string(EXTERNAL) + "/mnist/mnist/test";
     std::cout << "Loading MNIST test set from: " << TEST_ROOT << std::endl;
     auto dataset = LoadMnistTest(TEST_ROOT);
@@ -140,6 +144,9 @@ auto main(int argc, char *argv[]) -> int {
       if (device.is_cuda()) {
         x = x.to(torch::kCUDA, true);
         y = y.to(torch::kCUDA, true);
+      } else if (device.is_mps()) {
+        x = x.to(torch::kMPS, true);
+        y = y.to(torch::kMPS, true);
       }
       auto out = model->Forward(x);
       auto loss = torch::nll_loss(out, y);
