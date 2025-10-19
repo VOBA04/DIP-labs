@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
   std::vector<cv::Vec4i> hierarchy;
   cv::findContours(markers_8u, contours, hierarchy, cv::RETR_EXTERNAL,
                    cv::CHAIN_APPROX_SIMPLE);
-  std::vector<cv::Mat> digits(contours.size());
+  std::vector<cv::Mat> digits;
   for (size_t i = 0; i < contours.size(); i++) {
     std::vector<cv::Point> pts = contours[i];
     if (pts.size() < 5) {
@@ -197,23 +197,15 @@ int main(int argc, char *argv[]) {
       cv::normalize(rotated, rotated, 0, 255, cv::NORM_MINMAX);
     }
     cv::threshold(rotated, rotated, 128, 255, cv::THRESH_BINARY);
-    digits[i] = rotated.clone();
-  }
-  ShowPCA(markers_8u, img, "PCA Axes");
-  {
-    std::vector<cv::Mat> digits_display;
-    digits_display.reserve(digits.size());
-    for (const auto &d : digits) {
-      if (!d.empty()) {
-        digits_display.push_back(d);
-      }
-    }
-    if (!digits_display.empty()) {
-      ShowImages(digits_display, "Digit ROIs (PCA aligned)");
+    if (cv::countNonZero(rotated) > 10000) {
+      digits.emplace_back(rotated.clone());
+      continue;
     }
   }
 
-  // Ask for model path (Qt dialog or terminal prompt), then run predictions
+  ShowPCA(markers_8u, img, "PCA Axes");
+  ShowImages(digits, "Digit ROIs (PCA aligned)");
+
   std::string model_path;
 #ifdef WITH_QT
   {
@@ -260,7 +252,7 @@ int main(int argc, char *argv[]) {
       }
       auto x = MatToTensor28x28(digit);
       if (device.is_cuda()) {
-        x = x.to(torch::kCUDA, /*non_blocking=*/true);
+        x = x.to(torch::kCUDA, true);
       }
       auto out = model->Forward(x);           // log-probs [1,10]
       auto probs = out.exp().to(torch::kCPU); // convert to probabilities
