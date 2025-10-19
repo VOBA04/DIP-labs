@@ -15,6 +15,17 @@
 #include "digitnet.h"
 #include "image.h"
 
+#ifdef WITH_QT
+#include <QApplication>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLabel>
+#include <QSpinBox>
+#include <QStringList>
+#endif
+
 namespace fs = std::filesystem;
 
 auto LoadPrintedDigitsDataset(const std::string &root)
@@ -68,6 +79,58 @@ auto LoadMnistDataset(const std::string &root)
   return data;
 }
 
+// Hybrid dataset: digit '0' from MNIST, digits '1'-'9' from printed_digits
+auto LoadHybridDataset(const std::string &mnist_root,
+                       const std::string &printed_root)
+    -> std::vector<std::pair<torch::Tensor, int>> {
+  std::vector<std::pair<torch::Tensor, int>> data;
+
+  // Load only '0' class from MNIST
+  for (const auto &file : fs::directory_iterator(mnist_root)) {
+    if (!file.is_regular_file()) {
+      continue;
+    }
+    auto fname = file.path().filename().string();
+    size_t i = 0;
+    while (i < fname.size() &&
+           (std::isdigit(static_cast<unsigned char>(fname[i])) != 0)) {
+      i++;
+    }
+    int label = (i > 0) ? std::stoi(fname.substr(0, i)) : -1;
+    if (label != 0) {
+      continue;
+    }
+    auto tensor = LoadImage(file.path().string());
+    data.emplace_back(tensor, 0);
+  }
+
+  // Load only classes '1'..'9' from printed_digits
+  for (const auto &dir : fs::directory_iterator(printed_root)) {
+    if (!dir.is_directory()) {
+      continue;
+    }
+    const auto NAME = dir.path().filename().string();
+    int label = -1;
+    try {
+      label = std::stoi(NAME);
+    } catch (...) {
+      continue;
+    }
+    if (label < 1 || label > 9) {
+      continue;
+    }
+    for (const auto &file : fs::directory_iterator(dir)) {
+      if (!file.is_regular_file()) {
+        continue;
+      }
+      auto tensor = LoadImage(file.path().string());
+      data.emplace_back(tensor, label);
+    }
+  }
+
+  return data;
+}
+
 void PrintProgressBar(int epoch, int total_epochs, size_t current,
                       size_t total) {
   const int BAR_WIDTH = 30;
@@ -83,13 +146,53 @@ void PrintProgressBar(int epoch, int total_epochs, size_t current,
 }
 
 auto main(int argc, char *argv[]) -> int {
+  std::string dataset_name;
+  int epochs = 0;
+
+#ifdef WITH_QT
+  std::unique_ptr<QApplication> app_ptr;
+  int qt_argc = 1;
+  char prog[] = "train";
+  char *qt_argv[] = {prog, nullptr};
+  app_ptr = std::make_unique<QApplication>(qt_argc, qt_argv);
+
+  QDialog dialog;
+  dialog.setWindowTitle("Train options");
+  QFormLayout layout(&dialog);
+
+  QComboBox dataset_box;
+  dataset_box.addItems({"printed_digits", "mnist", "mnist0_printed_digits"});
+  layout.addRow(new QLabel("Dataset:"), &dataset_box);
+
+  QSpinBox epoch_box;
+  epoch_box.setRange(1, 100);
+  epoch_box.setValue(5);
+  layout.addRow(new QLabel("Epochs:"), &epoch_box);
+
+  QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+  layout.addRow(&buttons);
+  QObject::connect(&buttons, &QDialogButtonBox::accepted, &dialog,
+                   &QDialog::accept);
+  QObject::connect(&buttons, &QDialogButtonBox::rejected, &dialog,
+                   &QDialog::reject);
+
+  if (dialog.exec() != QDialog::Accepted) {
+    std::cerr << "Cancelled by user." << std::endl;
+    return 1;
+  }
+
+  dataset_name = dataset_box.currentText().toStdString();
+  epochs = epoch_box.value();
+#else
   if (argc != 3) {
     std::cerr << "Usage: " << argv[0] << " <dataset_name> <epochs>"
               << std::endl;
     return 1;
   }
-  std::string dataset_name = argv[1];
-  int epochs = std::stoi(argv[2]);
+  dataset_name = argv[1];
+  epochs = std::stoi(argv[2]);
+#endif
+
   torch::Device device(torch::cuda::is_available() ? torch::kCUDA
                                                    : torch::kCPU);
   std::cout << "Device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
@@ -103,6 +206,12 @@ auto main(int argc, char *argv[]) -> int {
   } else if (dataset_name == "mnist") {
     std::cout << "Loading MNIST dataset..." << std::endl;
     dataset = LoadMnistDataset(EXTERNAL "/mnist/mnist/train");
+  } else if (dataset_name == "mnist0_printed_digits") {
+    std::cout
+        << "Loading hybrid dataset (0 from MNIST, 1-9 from printed_digits)..."
+        << std::endl;
+    dataset = LoadHybridDataset(EXTERNAL "/mnist/mnist/train",
+                                EXTERNAL "/printed_digits/assets");
   } else {
     std::cerr << "Unknown dataset: " << dataset_name << std::endl;
     return 1;
