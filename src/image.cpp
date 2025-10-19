@@ -590,3 +590,16 @@ void ShowPCA(const cv::Mat &markers, const cv::Mat &image,
   cv::namedWindow(window_name, cv::WINDOW_NORMAL);
   cv::imshow(window_name, canvas);
 }
+
+auto LoadImage(const std::string &path) -> torch::Tensor {
+  cv::Mat img = cv::imread(path, cv::IMREAD_GRAYSCALE);
+  if (img.empty()) {
+    throw std::runtime_error("Failed to read image: " + path);
+  }
+  cv::resize(img, img, cv::Size(28, 28));
+  img.convertTo(img, CV_32F, 1.0 / 255.0);
+  auto tensor = torch::from_blob(img.ptr<float>(0), {1, 28, 28, 1},
+                                 torch::TensorOptions().dtype(torch::kFloat));
+  tensor = tensor.permute({0, 3, 1, 2}); // [1,1,28,28]
+  return tensor.clone();
+}

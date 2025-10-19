@@ -5,6 +5,7 @@
 #include <opencv2/core/mat.hpp>
 #include <stdexcept>
 #include <string>
+#include <torch/torch.h>
 #include <vector>
 
 void ShowImages(const std::vector<cv::Mat> &images,
@@ -15,6 +16,9 @@ void ShowImage3D(const cv::Mat &image);
 #endif
 
 void ShowMarkers(const cv::Mat &markers, const std::string &window_name);
+
+// Загрузка одного изображения в тензор [1,1,28,28], float32 в диапазоне [0,1]
+auto LoadImage(const std::string &path) -> torch::Tensor;
 
 template <typename T> class Image {
 protected:

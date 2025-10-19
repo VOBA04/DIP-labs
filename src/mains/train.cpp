@@ -13,19 +13,9 @@
 #include <vector>
 
 #include "digitnet.h"
+#include "image.h"
 
 namespace fs = std::filesystem;
-
-auto LoadImage(const std::string &path) -> torch::Tensor {
-  cv::Mat img = cv::imread(path, cv::IMREAD_GRAYSCALE);
-  cv::resize(img, img, cv::Size(28, 28));
-  img.convertTo(img, CV_32F, 1.0 / 255.0);
-  // Create a float tensor explicitly from OpenCV Mat (float32)
-  auto tensor = torch::from_blob(img.ptr<float>(0), {1, 28, 28, 1},
-                                 torch::TensorOptions().dtype(torch::kFloat));
-  tensor = tensor.permute({0, 3, 1, 2});
-  return tensor.clone();
-}
 
 auto LoadPrintedDigitsDataset(const std::string &root)
     -> std::vector<std::pair<torch::Tensor, int>> {

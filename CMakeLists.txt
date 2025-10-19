@@ -17,45 +17,47 @@ find_package(OpenCV REQUIRED)
 find_package(Torch REQUIRED)
 
 if(ENABLE_QT)
-# Use Qt5 to match VTK's Qt dependency (apt libvtk9-dev commonly uses Qt5)
-find_package(Qt5 COMPONENTS Widgets REQUIRED)
+    find_package(Qt5 COMPONENTS Widgets REQUIRED)
     find_package(VTK REQUIRED)
     message(STATUS "Qt support: ENABLED")
 else()
     message(STATUS "Qt support: DISABLED")
 endif()
 
-file(GLOB CPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+add_library(dip_core STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/image.cpp
+)
+target_include_directories(dip_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${OpenCV_INCLUDE_DIRS}
+    ${TORCH_INCLUDE_DIRS}
+)
 
-set(WITH_OPENCV ${CPP_SOURCES} ${CMAKE_CURRENT_SOURCE_DIR}/src/mains/main.cpp)
-
-add_executable(with_opencv ${WITH_OPENCV})
+add_executable(with_opencv ${CMAKE_CURRENT_SOURCE_DIR}/src/mains/main.cpp)
 add_executable(train ${CMAKE_CURRENT_SOURCE_DIR}/src/mains/train.cpp)
-
-target_include_directories(with_opencv PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
-    ${VTK_INCLUDE_DIRS}
-    ${TORCH_INCLUDE_DIRS}
-)
-
-target_include_directories(train PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${OpenCV_INCLUDE_DIRS}
-    ${TORCH_INCLUDE_DIRS}
-)
+add_executable(test_model ${CMAKE_CURRENT_SOURCE_DIR}/src/mains/test_model.cpp)
 
 target_link_libraries(with_opencv PRIVATE 
+    dip_core
     ${OpenCV_LIBS}
     ${TORCH_LIBRARIES}
 )
 
 target_link_libraries(train PRIVATE 
+    dip_core
+    ${OpenCV_LIBS}
+    ${TORCH_LIBRARIES}
+)
+
+target_link_libraries(test_model PRIVATE 
+    dip_core
     ${OpenCV_LIBS}
     ${TORCH_LIBRARIES}
 )
 
 if(ENABLE_QT)
     target_link_libraries(with_opencv PRIVATE Qt5::Widgets ${VTK_LIBRARIES})
+    target_link_libraries(test_model PRIVATE Qt5::Widgets)
     target_compile_definitions(with_opencv PRIVATE WITH_QT)
+    target_compile_definitions(test_model PRIVATE WITH_QT)
 endif()
