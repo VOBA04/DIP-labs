@@ -8,6 +8,7 @@
 .cache
 doxygen
 dump/
+models/
 
 # Local History for Visual Studio Code
 .history/

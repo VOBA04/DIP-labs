@@ -1,0 +1,204 @@
+#include <cctype>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <opencv2/core/hal/interface.h>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <string>
+#include <torch/torch.h>
+#include <utility>
+#include <vector>
+
+#include "digitnet.h"
+
+namespace fs = std::filesystem;
+
+auto LoadImage(const std::string &path) -> torch::Tensor {
+  cv::Mat img = cv::imread(path, cv::IMREAD_GRAYSCALE);
+  cv::resize(img, img, cv::Size(28, 28));
+  img.convertTo(img, CV_32F, 1.0 / 255.0);
+  // Create a float tensor explicitly from OpenCV Mat (float32)
+  auto tensor = torch::from_blob(img.ptr<float>(0), {1, 28, 28, 1},
+                                 torch::TensorOptions().dtype(torch::kFloat));
+  tensor = tensor.permute({0, 3, 1, 2});
+  return tensor.clone();
+}
+
+auto LoadPrintedDigitsDataset(const std::string &root)
+    -> std::vector<std::pair<torch::Tensor, int>> {
+  std::vector<std::pair<torch::Tensor, int>> data;
+  for (const auto &dir : fs::directory_iterator(root)) {
+    if (!dir.is_directory()) {
+      continue;
+    }
+    const auto NAME = dir.path().filename().string();
+    int label = -1;
+    try {
+      label = std::stoi(NAME);
+    } catch (...) {
+      continue;
+    }
+    if (label < 0 || label > 9) {
+      continue;
+    }
+    for (const auto &file : fs::directory_iterator(dir)) {
+      if (!file.is_regular_file()) {
+        continue;
+      }
+      auto tensor = LoadImage(file.path().string());
+      data.emplace_back(tensor, label);
+    }
+  }
+  return data;
+}
+
+auto LoadMnistDataset(const std::string &root)
+    -> std::vector<std::pair<torch::Tensor, int>> {
+  std::vector<std::pair<torch::Tensor, int>> data;
+  for (const auto &file : fs::directory_iterator(root)) {
+    if (!file.is_regular_file()) {
+      continue;
+    }
+    auto fname = file.path().filename().string();
+    size_t i = 0;
+    while (i < fname.size() &&
+           (std::isdigit(static_cast<unsigned char>(fname[i])) != 0)) {
+      i++;
+    }
+    int label = (i > 0) ? std::stoi(fname.substr(0, i)) : -1;
+    if (label < 0 || label > 9) {
+      continue;
+    }
+    auto tensor = LoadImage(file.path().string());
+    data.emplace_back(tensor, label);
+  }
+  return data;
+}
+
+void PrintProgressBar(int epoch, int total_epochs, size_t current,
+                      size_t total) {
+  const int BAR_WIDTH = 30;
+  double ratio = static_cast<double>(current) / static_cast<double>(total);
+  int filled = static_cast<int>(ratio * BAR_WIDTH);
+  int pct = static_cast<int>(ratio * 100.0);
+  std::cout << "\rEpoch " << (epoch + 1) << "/" << total_epochs << "  [";
+  for (int i = 0; i < BAR_WIDTH; ++i) {
+    std::cout << (i < filled ? '#' : '.');
+  }
+  std::cout << "]  " << std::setw(3) << pct << "%  (" << current << "/" << total
+            << ")" << std::flush;
+}
+
+auto main(int argc, char *argv[]) -> int {
+  if (argc != 3) {
+    std::cerr << "Usage: " << argv[0] << " <dataset_name> <epochs>"
+              << std::endl;
+    return 1;
+  }
+  std::string dataset_name = argv[1];
+  int epochs = std::stoi(argv[2]);
+  torch::Device device(torch::cuda::is_available() ? torch::kCUDA
+                                                   : torch::kCPU);
+  std::cout << "Device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
+  // Enable cuDNN benchmark for faster convolutions on fixed-size inputs
+  torch::globalContext().setBenchmarkCuDNN(true);
+
+  std::vector<std::pair<torch::Tensor, int>> dataset;
+  if (dataset_name == "printed_digits") {
+    std::cout << "Loading printed digits dataset..." << std::endl;
+    dataset = LoadPrintedDigitsDataset(EXTERNAL "/printed_digits/assets");
+  } else if (dataset_name == "mnist") {
+    std::cout << "Loading MNIST dataset..." << std::endl;
+    dataset = LoadMnistDataset(EXTERNAL "/mnist/mnist/train");
+  } else {
+    std::cerr << "Unknown dataset: " << dataset_name << std::endl;
+    return 1;
+  }
+  std::cout << "Dataset loaded with " << dataset.size() << " samples."
+            << std::endl;
+
+  // Stack all samples into one tensor [N,1,28,28] and labels [N]
+  const auto N = static_cast<int64_t>(dataset.size());
+  std::vector<torch::Tensor> imgs;
+  imgs.reserve(N);
+  std::vector<int64_t> labels_vec;
+  labels_vec.reserve(N);
+  for (int64_t i = 0; i < N; ++i) {
+    imgs.push_back(dataset[i].first); // [1,1,28,28]
+    labels_vec.push_back(static_cast<int64_t>(dataset[i].second));
+  }
+  auto inputs_cpu = torch::cat(imgs, 0).contiguous(); // [N,1,28,28]
+  auto labels_cpu =
+      torch::from_blob(labels_vec.data(), {N}, torch::kLong).clone();
+  if (device.is_cuda()) {
+    inputs_cpu = inputs_cpu.pin_memory();
+    labels_cpu = labels_cpu.pin_memory();
+  }
+
+  torch::manual_seed(42);
+  auto model = std::make_shared<DigitNet>();
+  model->to(device);
+  model->train();
+  torch::optim::Adam optimizer(model->parameters(),
+                               torch::optim::AdamOptions(0.001));
+
+  const int64_t BATCH_SIZE = 256; // 128/256, если хватает VRAM
+  std::cout << "Starting training for " << epochs << " epochs..." << std::endl;
+
+  for (int epoch = 0; epoch < epochs; epoch++) {
+    float total_loss = 0.0F;
+    int64_t correct = 0;
+    auto perm = torch::randperm(N, torch::TensorOptions().dtype(torch::kLong));
+
+    // Сформируем перемешанные непрерывные батчи для более быстрых копирований
+    auto inputs_shuf = inputs_cpu.index_select(0, perm).contiguous();
+    auto labels_shuf = labels_cpu.index_select(0, perm).contiguous();
+    if (device.is_cuda()) {
+      inputs_shuf = inputs_shuf.pin_memory();
+      labels_shuf = labels_shuf.pin_memory();
+    }
+
+    for (int64_t start = 0; start < N; start += BATCH_SIZE) {
+      const int64_t BS = std::min<int64_t>(BATCH_SIZE, N - start);
+
+      auto batch_x = inputs_shuf.narrow(0, start, BS);
+      auto batch_y = labels_shuf.narrow(0, start, BS);
+
+      if (device.is_cuda()) {
+        batch_x = batch_x.to(torch::kCUDA, /*non_blocking=*/true);
+        batch_y = batch_y.to(torch::kCUDA, /*non_blocking=*/true);
+      }
+      auto output = model->Forward(batch_x); // logits or log-probs
+      auto loss = torch::nll_loss(output, batch_y);
+
+      optimizer.zero_grad();
+      loss.backward();
+      optimizer.step();
+
+      total_loss += loss.item<float>() * static_cast<float>(BS);
+      auto predicted = output.argmax(1);
+      correct += predicted.eq(batch_y).sum().item<int64_t>();
+
+      // Обновляем прогресс реже (раз в ~10 батчей)
+      if (((start / BATCH_SIZE) % 10) == 0) {
+        size_t seen = static_cast<size_t>(std::min<int64_t>(start + BS, N));
+        PrintProgressBar(epoch, epochs, seen, static_cast<size_t>(N));
+      }
+    }
+    PrintProgressBar(epoch, epochs, static_cast<size_t>(N),
+                     static_cast<size_t>(N));
+    std::cout << '\n';
+    std::cout << "Epoch " << (epoch + 1)
+              << " | Loss: " << (total_loss / static_cast<float>(N))
+              << " | Accuracy: "
+              << (100.0 * static_cast<double>(correct) / static_cast<double>(N))
+              << "%\n";
+  }
+
+  torch::save(model, MODELS "/digit_model_" + dataset_name + "_" +
+                         std::to_string(epochs) + ".pt");
+  return 0;
+}
