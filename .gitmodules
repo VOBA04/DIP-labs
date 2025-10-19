@@ -1,3 +1,6 @@
 [submodule "external/printed_digits"]
 	path = external/printed_digits
 	url = https://github.com/kaydee0502/printed-digits-dataset
+[submodule "external/mnist"]
+	path = external/mnist
+	url = https://github.com/DeepTrackAI/MNIST_dataset
