@@ -158,8 +158,8 @@ auto main(int argc, char *argv[]) -> int {
       auto batch_y = labels_shuf.narrow(0, start, BS);
 
       if (device.is_cuda()) {
-        batch_x = batch_x.to(torch::kCUDA, /*non_blocking=*/true);
-        batch_y = batch_y.to(torch::kCUDA, /*non_blocking=*/true);
+        batch_x = batch_x.to(torch::kCUDA, true);
+        batch_y = batch_y.to(torch::kCUDA, true);
       }
       auto output = model->Forward(batch_x); // logits or log-probs
       auto loss = torch::nll_loss(output, batch_y);

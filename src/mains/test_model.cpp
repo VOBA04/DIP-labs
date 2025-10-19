@@ -138,8 +138,8 @@ auto main(int argc, char *argv[]) -> int {
       auto x = inputs_cpu.narrow(0, start, BS);
       auto y = labels_cpu.narrow(0, start, BS);
       if (device.is_cuda()) {
-        x = x.to(torch::kCUDA, /*non_blocking=*/true);
-        y = y.to(torch::kCUDA, /*non_blocking=*/true);
+        x = x.to(torch::kCUDA, true);
+        y = y.to(torch::kCUDA, true);
       }
       auto out = model->Forward(x);
       auto loss = torch::nll_loss(out, y);
