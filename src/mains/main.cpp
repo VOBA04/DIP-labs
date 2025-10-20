@@ -1,5 +1,6 @@
 #include "image.h"
 
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <opencv2/core/base.hpp>
@@ -26,6 +27,8 @@
 #endif
 
 const int ESC_KEY = 27;
+
+namespace fs = std::filesystem;
 
 #include "digitnet.h"
 
@@ -206,6 +209,16 @@ int main(int argc, char *argv[]) {
   ShowPCA(markers_8u, img, "PCA Axes");
   ShowImages(digits, "Digit ROIs (PCA aligned)");
 
+  auto dir = fs::directory_entry(MODELS);
+  if (!dir.exists() || !dir.is_directory()) {
+    std::cout << "Нет каталога с моделями. Сначала обучите модель\n";
+    int key;
+    do {
+      key = cv::waitKey(0);
+    } while (key != ESC_KEY);
+    cv::destroyAllWindows();
+    return 0;
+  }
   std::string model_path;
 #ifdef WITH_QT
   {

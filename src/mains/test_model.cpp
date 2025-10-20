@@ -69,6 +69,11 @@ static void PrintProgress(size_t current, size_t total) {
 auto main(int argc, char *argv[]) -> int {
   std::string model_path;
 
+  auto dir = fs::directory_entry(MODELS);
+  if (!dir.exists() || !dir.is_directory()) {
+    std::cout << "Нет каталога с моделями. Сначала обучите модель\n";
+    return 0;
+  }
 #ifdef WITH_QT
   QApplication app(argc, argv);
   if (argc >= 2) {
@@ -86,11 +91,11 @@ auto main(int argc, char *argv[]) -> int {
 #else
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <path_to_model.pt>" << std::endl;
-    std::cerr << "Example: " << argv[0] << " " << MODELS
-              << "/digit_model_mnist_5.pt" << std::endl;
+    std::cerr << "Example: " << argv[0] << " " << "digit_model_mnist_5.pt"
+              << std::endl;
     return 1;
   }
-  model_path = argv[1];
+  model_path = MODELS argv[1];
 #endif
 
   try {

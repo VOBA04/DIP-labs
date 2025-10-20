@@ -296,7 +296,10 @@ auto main(int argc, char *argv[]) -> int {
               << (100.0 * static_cast<double>(correct) / static_cast<double>(N))
               << "%\n";
   }
-
+  auto dir = fs::directory_entry(MODELS);
+  if (!dir.exists() || !dir.is_directory()) {
+    fs::create_directory(MODELS);
+  }
   torch::save(model, MODELS "/digit_model_" + dataset_name + "_" +
                          std::to_string(epochs) + ".pt");
   return 0;
