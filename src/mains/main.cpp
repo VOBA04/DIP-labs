@@ -248,8 +248,10 @@ int main(int argc, char *argv[]) {
 #endif
 
   try {
-    torch::Device device(torch::cuda::is_available() ? torch::kCUDA
-                                                     : torch::kCPU);
+    torch::Device device(
+        torch::cuda::is_available()
+            ? torch::kCUDA
+            : (torch::mps::is_available() ? torch::kMPS : torch::kCPU));
     auto model = std::make_shared<DigitNet>();
     torch::load(model, model_path);
     model->to(device);
@@ -266,6 +268,8 @@ int main(int argc, char *argv[]) {
       auto x = MatToTensor28x28(digit);
       if (device.is_cuda()) {
         x = x.to(torch::kCUDA, true);
+      } else if (device.is_mps()) {
+        x = x.to(torch::kMPS, false);
       }
       auto out = model->Forward(x);           // log-probs [1,10]
       auto probs = out.exp().to(torch::kCPU); // convert to probabilities

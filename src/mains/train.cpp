@@ -193,9 +193,13 @@ auto main(int argc, char *argv[]) -> int {
   epochs = std::stoi(argv[2]);
 #endif
 
-  torch::Device device(torch::cuda::is_available() ? torch::kCUDA
-                                                   : torch::kCPU);
-  std::cout << "Device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
+  torch::Device device(
+      torch::cuda::is_available()
+          ? torch::kCUDA
+          : (torch::mps::is_available() ? torch::kMPS : torch::kCPU));
+  std::cout << "Device: "
+            << (device.is_cuda() ? "CUDA" : (device.is_mps() ? "MPS" : "CPU"))
+            << std::endl;
   // Enable cuDNN benchmark for faster convolutions on fixed-size inputs
   torch::globalContext().setBenchmarkCuDNN(true);
 
@@ -269,6 +273,9 @@ auto main(int argc, char *argv[]) -> int {
       if (device.is_cuda()) {
         batch_x = batch_x.to(torch::kCUDA, true);
         batch_y = batch_y.to(torch::kCUDA, true);
+      } else if (device.is_mps()) {
+        batch_x = batch_x.to(torch::kMPS, false);
+        batch_y = batch_y.to(torch::kMPS, false);
       }
       auto output = model->Forward(batch_x); // logits or log-probs
       auto loss = torch::nll_loss(output, batch_y);
